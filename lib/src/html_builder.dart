@@ -394,12 +394,10 @@ abstract class HTMLBuilder {
       modelViewerHtml.writeln(innerModelViewerHtml);
     }
     modelViewerHtml.writeln('</model-viewer>');
-
+    
     if (relatedJs != null) {
       modelViewerHtml
-        ..writeln('<script>')
-        ..write(relatedJs)
-        ..writeln('</script>');
+        ..writeln('<script src="${htmlEscape.convert(relatedJs)}"></script>');
     }
 
     if (debugLogging ?? false) {
