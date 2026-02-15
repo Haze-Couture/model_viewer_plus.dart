@@ -423,8 +423,8 @@ abstract class HTMLBuilder {
       const ModelViewerElement = customElements.get('model-viewer');
 
       if (ModelViewerElement && 'meshoptDecoderLocation' in ModelViewerElement) {
-        ModelViewerElement.meshoptDecoderLocation = '${htmlEscape.convert(decoderUrl)}';
-        console.log('[ModelViewer] Meshopt decoder configured:', '${htmlEscape.convert(decoderUrl)}');
+        ModelViewerElement.meshoptDecoderLocation = '$decoderUrl';
+        console.log('[ModelViewer] Meshopt decoder configured:', '$decoderUrl');
       } else {
         console.warn('[ModelViewer] ModelViewerElement does not support meshoptDecoderLocation');
       }
