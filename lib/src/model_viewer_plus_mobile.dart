@@ -268,11 +268,25 @@ class ModelViewerState extends State<ModelViewer> {
       }
 
       final path = request.uri.path;
-      if ((path == '/meshopt_decoder.wasm' ||
-              path == '/meshopt_decoder.js' ||
-              path == '/meshopt_decoder.mjs') &&
-          _meshoptAssetData != null) {
+      final isMeshoptPath = path == '/meshopt_decoder.wasm' ||
+          path == '/meshopt_decoder.js' ||
+          path == '/meshopt_decoder.mjs' ||
+          path.contains('meshopt') ||
+          path == '/&'; // Mangled request from some environments
+      if (isMeshoptPath && _meshoptAssetData != null) {
+        if (widget.debugLogging) {
+          debugPrint('[ModelViewer] Serving meshopt decoder for path: $path');
+        }
         await _serveMeshoptAsset(request);
+        return;
+      }
+      if (isMeshoptPath && _meshoptAssetData == null) {
+        if (widget.debugLogging) {
+          debugPrint('[ModelViewer] Meshopt decoder requested but not loaded (path: $path)');
+        }
+        request.response
+          ..statusCode = HttpStatus.notFound
+          ..close();
         return;
       }
 
@@ -454,7 +468,11 @@ class ModelViewerState extends State<ModelViewer> {
       String contentType;
       if (filename.endsWith('.wasm')) {
         contentType = 'application/wasm';
-      } else if (filename.endsWith('.js') || filename.endsWith('.mjs')) {
+      } else if (filename.endsWith('.js') ||
+          filename.endsWith('.mjs') ||
+          filename.contains('meshopt') ||
+          filename == '&') {
+        // .js/.mjs or mangled path (e.g. /&) — decoder asset is JS
         contentType = 'application/javascript';
       } else {
         contentType = 'application/octet-stream';
