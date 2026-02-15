@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert' show utf8;
+import 'dart:typed_data' show Uint8List;
 import 'dart:io'
     show ContentType, File, HttpRequest, HttpResponse, HttpServer, HttpStatus,
         InternetAddress, Platform;
@@ -472,21 +473,33 @@ class ModelViewerState extends State<ModelViewer> {
     }
   }
 
+  static final RegExp _meshoptExportStrip =
+      RegExp(r'\s*export\s*\{\s*MeshoptDecoder\s*\}\s*;?\s*$');
+
   Future<void> _serveMeshoptAsset(HttpRequest request) async {
     try {
-      final bytes = _meshoptAssetData!.buffer.asUint8List();
+      final rawBytes = _meshoptAssetData!.buffer.asUint8List();
       final filename = request.uri.path.substring(1);
 
+      final bool isJsDecoder = filename.endsWith('.js') ||
+          filename.endsWith('.mjs') ||
+          (filename.contains('meshopt') && !filename.endsWith('.wasm')) ||
+          filename == '&';
+
+      Uint8List bytes;
       String contentType;
       if (filename.endsWith('.wasm')) {
+        bytes = rawBytes;
         contentType = 'application/wasm';
-      } else if (filename.endsWith('.js') ||
-          filename.endsWith('.mjs') ||
-          filename.contains('meshopt') ||
-          filename == '&') {
-        // .js/.mjs or mangled path (e.g. /&) — decoder asset is JS
-        contentType = 'application/javascript';
+      } else if (isJsDecoder) {
+        // Serve as classic script: strip ES module export and set window.MeshoptDecoder
+        String script = utf8.decode(rawBytes);
+        script = script.replaceAll(_meshoptExportStrip, '');
+        script += '\nif (typeof window !== "undefined") window.MeshoptDecoder = MeshoptDecoder;\n';
+        bytes = Uint8List.fromList(utf8.encode(script));
+        contentType = 'application/javascript; charset=utf-8';
       } else {
+        bytes = rawBytes;
         contentType = 'application/octet-stream';
       }
 

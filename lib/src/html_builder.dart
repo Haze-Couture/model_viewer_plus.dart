@@ -1,4 +1,4 @@
-import 'dart:convert' show htmlEscape;
+import 'dart:convert' show htmlEscape, jsonEncode;
 
 import 'package:flutter/material.dart';
 
@@ -396,13 +396,13 @@ abstract class HTMLBuilder {
     }
     modelViewerHtml.writeln('</model-viewer>');
 
-    // Configure meshopt decoder if specified
-    // This MUST come before the model loads
+    // When using meshopt: set decoder on the class BEFORE any model-viewer exists,
+    // then inject the viewer so the first load sees the decoder (avoids "setMeshoptDecoder must be called before loading").
     if (meshoptDecoderPath != null) {
-      String decoderUrl = meshoptDecoderPath!;
+      final modelViewerTag = modelViewerHtml.toString();
+      modelViewerHtml.clear();
 
-      // If it's a Flutter asset, it will be served by the local HTTP server.
-      // Preserve the file extension so we serve at the correct path.
+      String decoderUrl = meshoptDecoderPath!;
       if (meshoptDecoderPath!.startsWith('assets/')) {
         if (meshoptDecoderPath!.endsWith('.js')) {
           decoderUrl = '/meshopt_decoder.js';
@@ -415,25 +415,20 @@ abstract class HTMLBuilder {
         }
       }
 
-      modelViewerHtml.writeln('''
-<script type="module">
-  (async () => {
-    try {
-      await customElements.whenDefined('model-viewer');
-      const ModelViewerElement = customElements.get('model-viewer');
-
-      if (ModelViewerElement && 'meshoptDecoderLocation' in ModelViewerElement) {
-        ModelViewerElement.meshoptDecoderLocation = '$decoderUrl';
-        console.log('[ModelViewer] Meshopt decoder configured:', '$decoderUrl');
-      } else {
-        console.warn('[ModelViewer] ModelViewerElement does not support meshoptDecoderLocation');
-      }
-    } catch (error) {
-      console.error('[ModelViewer] Error configuring meshopt decoder:', error);
-    }
-  })();
-</script>
-''');
+      modelViewerHtml
+        ..writeln(
+            '<div id="model-viewer-container" style="width:100%;height:100%;position:absolute;top:0;left:0;"></div>')
+        ..writeln('<script type="module">')
+        ..writeln("(async () => {")
+        ..writeln("  await customElements.whenDefined('model-viewer');")
+        ..writeln("  const ModelViewerElement = customElements.get('model-viewer');")
+        ..writeln("  if (ModelViewerElement && 'meshoptDecoderLocation' in ModelViewerElement) {")
+        ..writeln('    ModelViewerElement.meshoptDecoderLocation = ${jsonEncode(decoderUrl)};')
+        ..writeln('  }')
+        ..writeln("  const container = document.getElementById('model-viewer-container');")
+        ..writeln('  if (container) container.innerHTML = ${jsonEncode(modelViewerTag)};')
+        ..writeln('})();')
+        ..writeln('</script>');
     }
 
     if (relatedJs != null) {
