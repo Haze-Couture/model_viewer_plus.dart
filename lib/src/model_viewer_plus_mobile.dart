@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert' show utf8;
 import 'dart:io'
-    show File, HttpResponse, HttpServer, HttpStatus, InternetAddress, Platform;
+    show ContentType, File, HttpRequest, HttpResponse, HttpServer, HttpStatus,
+        InternetAddress, Platform;
 
 import 'package:android_intent_plus/android_intent.dart' as android_intent;
 import 'package:flutter/foundation.dart';
@@ -24,10 +25,31 @@ class ModelViewerState extends State<ModelViewer> {
   WebViewController? _webViewController;
   late String _proxyURL;
 
+  String? _meshoptAssetPath;
+  ByteData? _meshoptAssetData;
+
   @override
   void initState() {
     super.initState();
+    if (widget.meshoptDecoderPath != null &&
+        widget.meshoptDecoderPath!.startsWith('assets/')) {
+      unawaited(_loadMeshoptAsset());
+    }
     unawaited(_initProxy().then((_) => _initController()));
+  }
+
+  Future<void> _loadMeshoptAsset() async {
+    try {
+      _meshoptAssetPath = widget.meshoptDecoderPath;
+      _meshoptAssetData =
+          await rootBundle.load(widget.meshoptDecoderPath!);
+      if (widget.debugLogging) {
+        debugPrint(
+            '[ModelViewer] Loaded meshopt asset: ${widget.meshoptDecoderPath}');
+      }
+    } catch (e) {
+      debugPrint('[ModelViewer] Error loading meshopt asset: $e');
+    }
   }
 
   @override
@@ -122,6 +144,7 @@ class ModelViewerState extends State<ModelViewer> {
       innerModelViewerHtml: widget.innerModelViewerHtml,
       relatedCss: widget.relatedCss,
       relatedJs: widget.relatedJs,
+      meshoptDecoderPath: widget.meshoptDecoderPath,
       id: widget.id,
       debugLogging: widget.debugLogging,
     );
@@ -240,6 +263,15 @@ class ModelViewerState extends State<ModelViewer> {
     });
 
     _proxy!.listen((request) async {
+      final path = request.uri.path;
+      if ((path == '/meshopt_decoder.wasm' ||
+              path == '/meshopt_decoder.js' ||
+              path == '/meshopt_decoder.mjs') &&
+          _meshoptAssetData != null) {
+        await _serveMeshoptAsset(request);
+        return;
+      }
+
       final Uri url = Uri.parse(widget.src);
       final HttpResponse response = request.response;
 
@@ -324,6 +356,42 @@ class ModelViewerState extends State<ModelViewer> {
           }
       }
     });
+  }
+
+  Future<void> _serveMeshoptAsset(HttpRequest request) async {
+    try {
+      final bytes = _meshoptAssetData!.buffer.asUint8List();
+      final filename = request.uri.path.substring(1);
+
+      String contentType;
+      if (filename.endsWith('.wasm')) {
+        contentType = 'application/wasm';
+      } else if (filename.endsWith('.js') || filename.endsWith('.mjs')) {
+        contentType = 'application/javascript';
+      } else {
+        contentType = 'application/octet-stream';
+      }
+
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.parse(contentType)
+        ..headers.set('Access-Control-Allow-Origin', '*')
+        ..headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        ..headers.set('Cache-Control', 'public, max-age=31536000')
+        ..headers.contentLength = bytes.length
+        ..add(bytes);
+      await request.response.close();
+
+      if (widget.debugLogging) {
+        debugPrint(
+            '[ModelViewer] Served meshopt asset: $filename (${bytes.length} bytes)');
+      }
+    } catch (e) {
+      debugPrint('[ModelViewer] Error serving meshopt asset: $e');
+      request.response
+        ..statusCode = HttpStatus.internalServerError
+        ..close();
+    }
   }
 
   Future<Uint8List> _readAsset(final String key) async {

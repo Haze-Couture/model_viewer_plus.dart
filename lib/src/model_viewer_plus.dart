@@ -84,6 +84,7 @@ class ModelViewer extends StatefulWidget {
     this.innerModelViewerHtml,
     this.relatedCss,
     this.relatedJs,
+    this.meshoptDecoderPath,
     this.id,
     this.debugLogging = true,
     this.javascriptChannels,
@@ -563,6 +564,17 @@ class ModelViewer extends StatefulWidget {
 
   /// Custom JS
   final String? relatedJs;
+
+  /// Path to the meshopt decoder for compressed GLB models.
+  ///
+  /// Prefer the in-repo JS file (WASM is embedded): 'assets/js/meshopt_decoder.js'.
+  /// Supports:
+  /// 1. Flutter asset: 'assets/js/meshopt_decoder.js' (or .wasm / .mjs) — served locally
+  /// 2. Relative path for local server: '/meshopt_decoder.js'
+  ///
+  /// When an asset path is provided, the decoder is served through the local HTTP server.
+  /// Required for models compressed with EXT_meshopt_compression.
+  final String? meshoptDecoderPath;
 
   /// The id of the [ModelViewer] in HTML.
   final String? id;

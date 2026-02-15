@@ -71,6 +71,7 @@ abstract class HTMLBuilder {
     final String? innerModelViewerHtml,
     final String? relatedCss,
     final String? relatedJs,
+    final String? meshoptDecoderPath,
     final String? id,
     final bool? debugLogging,
   }) {
@@ -394,7 +395,47 @@ abstract class HTMLBuilder {
       modelViewerHtml.writeln(innerModelViewerHtml);
     }
     modelViewerHtml.writeln('</model-viewer>');
-    
+
+    // Configure meshopt decoder if specified
+    // This MUST come before the model loads
+    if (meshoptDecoderPath != null) {
+      String decoderUrl = meshoptDecoderPath!;
+
+      // If it's a Flutter asset, it will be served by the local HTTP server.
+      // Preserve the file extension so we serve at the correct path.
+      if (meshoptDecoderPath!.startsWith('assets/')) {
+        if (meshoptDecoderPath!.endsWith('.js')) {
+          decoderUrl = '/meshopt_decoder.js';
+        } else if (meshoptDecoderPath!.endsWith('.wasm')) {
+          decoderUrl = '/meshopt_decoder.wasm';
+        } else if (meshoptDecoderPath!.endsWith('.mjs')) {
+          decoderUrl = '/meshopt_decoder.mjs';
+        } else {
+          decoderUrl = '/meshopt_decoder.js';
+        }
+      }
+
+      modelViewerHtml.writeln('''
+<script type="module">
+  (async () => {
+    try {
+      await customElements.whenDefined('model-viewer');
+      const ModelViewerElement = customElements.get('model-viewer');
+
+      if (ModelViewerElement && 'meshoptDecoderLocation' in ModelViewerElement) {
+        ModelViewerElement.meshoptDecoderLocation = '${htmlEscape.convert(decoderUrl)}';
+        console.log('[ModelViewer] Meshopt decoder configured:', '${htmlEscape.convert(decoderUrl)}');
+      } else {
+        console.warn('[ModelViewer] ModelViewerElement does not support meshoptDecoderLocation');
+      }
+    } catch (error) {
+      console.error('[ModelViewer] Error configuring meshopt decoder:', error);
+    }
+  })();
+</script>
+''');
+    }
+
     if (relatedJs != null) {
       modelViewerHtml
         ..writeln('<script src="${htmlEscape.convert(relatedJs)}"></script>');

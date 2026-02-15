@@ -132,6 +132,7 @@ class ModelViewerState extends State<ModelViewer> {
       innerModelViewerHtml: widget.innerModelViewerHtml,
       relatedCss: widget.relatedCss,
       relatedJs: widget.relatedJs,
+      meshoptDecoderPath: widget.meshoptDecoderPath,
       id: widget.id,
       debugLogging: widget.debugLogging,
     );
