@@ -307,18 +307,30 @@ class ModelViewerState extends State<ModelViewer> {
             ..add(html);
           await response.close();
         case '/model-viewer.min.js':
-          final Uint8List code = await _readAsset(
-            'packages/model_viewer_plus/assets/model-viewer.min.js',
-          );
-          response
-            ..statusCode = HttpStatus.ok
-            ..headers.add(
-              'Content-Type',
-              'application/javascript;charset=UTF-8',
-            )
-            ..headers.add('Content-Length', code.lengthInBytes.toString())
-            ..add(code);
-          await response.close();
+          try {
+            final Uint8List code = await _readAsset(
+              'packages/model_viewer_plus/assets/model-viewer.min.js',
+            );
+            if (widget.debugLogging) {
+              debugPrint(
+                  '[ModelViewer] Served model-viewer.min.js (${code.lengthInBytes} bytes)');
+            }
+            response
+              ..statusCode = HttpStatus.ok
+              ..headers.add(
+                'Content-Type',
+                'application/javascript;charset=UTF-8',
+              )
+              ..headers.add('Content-Length', code.lengthInBytes.toString())
+              ..add(code);
+            await response.close();
+          } catch (e) {
+            if (widget.debugLogging) {
+              debugPrint('[ModelViewer] Error serving model-viewer.min.js: $e');
+            }
+            response.statusCode = HttpStatus.notFound;
+            await response.close();
+          }
         case '/model':
           if (url.isAbsolute && !url.isScheme('file')) {
             await response.redirect(url);
