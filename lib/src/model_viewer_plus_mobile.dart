@@ -263,6 +263,10 @@ class ModelViewerState extends State<ModelViewer> {
     });
 
     _proxy!.listen((request) async {
+      if (widget.debugLogging) {
+        debugPrint('[ModelViewer] HTTP Request: ${request.method} ${request.uri}');
+      }
+
       final path = request.uri.path;
       if ((path == '/meshopt_decoder.wasm' ||
               path == '/meshopt_decoder.js' ||
@@ -304,13 +308,19 @@ class ModelViewerState extends State<ModelViewer> {
         case '/model':
           if (url.isAbsolute && !url.isScheme('file')) {
             await response.redirect(url);
+          } else if (url.isScheme('file')) {
+            await _serveLocalFile(request, url.path);
           } else {
-            final Uint8List data = await (url.isScheme('file')
-                ? _readFile(url.path)
-                : _readAsset(url.path));
+            final Uint8List data = await _readAsset(url.path);
+            final String pathLower = url.path.toLowerCase();
+            final String contentType = pathLower.endsWith('.glb')
+                ? 'model/gltf-binary'
+                : pathLower.endsWith('.gltf')
+                    ? 'model/gltf+json'
+                    : 'application/octet-stream';
             response
               ..statusCode = HttpStatus.ok
-              ..headers.add('Content-Type', 'application/octet-stream')
+              ..headers.add('Content-Type', contentType)
               ..headers.add('Content-Length', data.lengthInBytes.toString())
               ..headers.add('Access-Control-Allow-Origin', '*')
               ..add(data);
@@ -331,7 +341,24 @@ class ModelViewerState extends State<ModelViewer> {
             debugPrint('Redirect: ${request.uri}');
             await response.redirect(request.uri);
           } else if (request.uri.hasAbsolutePath) {
-            // Some gltf models need other resources from the origin
+            // Some gltf models need other resources from the origin.
+            // url.origin is only valid for http/https; file:// throws.
+            if (url.scheme != 'http' && url.scheme != 'https') {
+              if (widget.debugLogging) {
+                debugPrint(
+                    '[ModelViewer] 404 (no origin for scheme ${url.scheme}): ${request.uri}');
+              }
+              final Uint8List text = utf8.encode(
+                "Resource '${request.uri}' not found",
+              );
+              response
+                ..statusCode = HttpStatus.notFound
+                ..headers.add('Content-Type', 'text/plain;charset=UTF-8')
+                ..headers.add('Content-Length', text.length.toString())
+                ..add(text);
+              await response.close();
+              break;
+            }
             final List<String> pathSegments = [...url.pathSegments]
               ..removeLast();
             final String tryDestination = p.joinAll([
@@ -356,6 +383,67 @@ class ModelViewerState extends State<ModelViewer> {
           }
       }
     });
+  }
+
+  Future<void> _serveLocalFile(HttpRequest request, String filePath) async {
+    if (widget.debugLogging) {
+      debugPrint('[ModelViewer] _serveLocalFile called');
+      debugPrint('[ModelViewer] Request path: ${request.uri.path}');
+      debugPrint('[ModelViewer] File path: $filePath');
+    }
+
+    try {
+      final cleanPath = filePath.replaceFirst('file://', '');
+      if (widget.debugLogging) {
+        debugPrint('[ModelViewer] Clean path: $cleanPath');
+      }
+
+      final file = File(cleanPath);
+      if (widget.debugLogging) {
+        debugPrint('[ModelViewer] File exists: ${await file.exists()}');
+      }
+
+      if (!await file.exists()) {
+        if (widget.debugLogging) {
+          debugPrint('[ModelViewer] File not found: $cleanPath');
+        }
+        request.response
+          ..statusCode = HttpStatus.notFound
+          ..close();
+        return;
+      }
+
+      final bytes = await file.readAsBytes();
+      final extension = filePath.split('.').last.toLowerCase();
+      String contentType;
+      if (extension == 'glb') {
+        contentType = 'model/gltf-binary';
+      } else if (extension == 'gltf') {
+        contentType = 'model/gltf+json';
+      } else {
+        contentType = 'application/octet-stream';
+      }
+
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.parse(contentType)
+        ..headers.set('Access-Control-Allow-Origin', '*')
+        ..headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        ..headers.set('Cache-Control', 'public, max-age=31536000')
+        ..headers.contentLength = bytes.length
+        ..add(bytes);
+      await request.response.close();
+
+      if (widget.debugLogging) {
+        debugPrint(
+            '[ModelViewer] Served local model: ${file.path} (${bytes.length} bytes)');
+      }
+    } catch (e) {
+      debugPrint('[ModelViewer] Error serving local file: $e');
+      request.response
+        ..statusCode = HttpStatus.internalServerError
+        ..close();
+    }
   }
 
   Future<void> _serveMeshoptAsset(HttpRequest request) async {
