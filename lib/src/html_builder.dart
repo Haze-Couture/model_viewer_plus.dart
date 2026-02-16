@@ -73,6 +73,9 @@ abstract class HTMLBuilder {
     final String? relatedJs,
     final String? meshoptDecoderPath,
     final String? id,
+    /// Unique id for the meshopt wrapper div (web only). Prevents getElementById
+    /// from finding another platform view's container when multiple views exist.
+    final String? containerId,
     final bool? debugLogging,
   }) {
     if (relatedCss != null) {
@@ -358,9 +361,11 @@ abstract class HTMLBuilder {
       modelViewerHtml.write(' scale="${htmlEscape.convert(scale)}"');
     }
 
-    // Styles
+    // Styles — include display/sizing inline so the element is properly sized
+    // even when the template <style> block is stripped (web platform-view path).
     modelViewerHtml
       ..write(' style="')
+      ..write('display: block; width: 100%; height: 100%; ')
       // CSS Styles
       ..write(
         'background-color: rgba(${(backgroundColor.r * 255.0).round().clamp(0, 255)}, '
@@ -396,39 +401,50 @@ abstract class HTMLBuilder {
     }
     modelViewerHtml.writeln('</model-viewer>');
 
-    // When using meshopt: set decoder on the class BEFORE any model-viewer exists,
-    // then inject the viewer so the first load sees the decoder (avoids "setMeshoptDecoder must be called before loading").
+    // When using meshopt: set decoder on the class BEFORE any model-viewer exists.
+    // Web: decoder is set in index.html; we output only <model-viewer> (scripts in innerHTML do not run).
+    // Mobile: full page load runs scripts, so we use wrapper div + script to set decoder then inject viewer.
     if (meshoptDecoderPath != null) {
       final modelViewerTag = modelViewerHtml.toString();
-      modelViewerHtml.clear();
+      final bool isWeb = containerId != null;
 
-      String decoderUrl = meshoptDecoderPath!;
-      if (meshoptDecoderPath!.startsWith('assets/')) {
-        if (meshoptDecoderPath!.endsWith('.js')) {
-          decoderUrl = '/meshopt_decoder.js';
-        } else if (meshoptDecoderPath!.endsWith('.wasm')) {
-          decoderUrl = '/meshopt_decoder.wasm';
-        } else if (meshoptDecoderPath!.endsWith('.mjs')) {
-          decoderUrl = '/meshopt_decoder.mjs';
-        } else {
-          decoderUrl = '/meshopt_decoder.js';
+      if (isWeb) {
+        // Web: leave modelViewerHtml as-is (just the <model-viewer> tag). Decoder set in index.html.
+        debugPrint('[model_viewer_plus] HTMLBuilder: web path, outputting <model-viewer> only (decoder in index.html)');
+      } else {
+        // Mobile: wrapper div + script (script runs because it's a full document load).
+        modelViewerHtml.clear();
+        String decoderUrl = meshoptDecoderPath!;
+        if (meshoptDecoderPath!.startsWith('assets/')) {
+          if (meshoptDecoderPath!.endsWith('.js')) {
+            decoderUrl = '/meshopt_decoder.js';
+          } else if (meshoptDecoderPath!.endsWith('.wasm')) {
+            decoderUrl = '/meshopt_decoder.wasm';
+          } else if (meshoptDecoderPath!.endsWith('.mjs')) {
+            decoderUrl = '/meshopt_decoder.mjs';
+          } else {
+            decoderUrl = '/meshopt_decoder.js';
+          }
         }
+        final String containerIdValue = 'model-viewer-container';
+        if (debugLogging ?? false) {
+          debugPrint('[model_viewer_plus] HTMLBuilder: mobile path, wrapper div + script, decoderUrl=$decoderUrl');
+        }
+        modelViewerHtml
+          ..writeln(
+              '<div id="${htmlEscape.convert(containerIdValue)}" style="width:100%;height:100%;position:absolute;top:0;left:0;"></div>')
+          ..writeln('<script type="module">')
+          ..writeln("(async () => {")
+          ..writeln("  await customElements.whenDefined('model-viewer');")
+          ..writeln("  const ModelViewerElement = customElements.get('model-viewer');")
+          ..writeln("  if (ModelViewerElement && 'meshoptDecoderLocation' in ModelViewerElement) {")
+          ..writeln('    ModelViewerElement.meshoptDecoderLocation = ${jsonEncode(decoderUrl)};')
+          ..writeln('  }')
+          ..writeln("  const container = document.getElementById(${jsonEncode(containerIdValue)});")
+          ..writeln('  if (container) container.innerHTML = ${jsonEncode(modelViewerTag)};')
+          ..writeln('})();')
+          ..writeln('</script>');
       }
-
-      modelViewerHtml
-        ..writeln(
-            '<div id="model-viewer-container" style="width:100%;height:100%;position:absolute;top:0;left:0;"></div>')
-        ..writeln('<script type="module">')
-        ..writeln("(async () => {")
-        ..writeln("  await customElements.whenDefined('model-viewer');")
-        ..writeln("  const ModelViewerElement = customElements.get('model-viewer');")
-        ..writeln("  if (ModelViewerElement && 'meshoptDecoderLocation' in ModelViewerElement) {")
-        ..writeln('    ModelViewerElement.meshoptDecoderLocation = ${jsonEncode(decoderUrl)};')
-        ..writeln('  }')
-        ..writeln("  const container = document.getElementById('model-viewer-container');")
-        ..writeln('  if (container) container.innerHTML = ${jsonEncode(modelViewerTag)};')
-        ..writeln('})();')
-        ..writeln('</script>');
     }
 
     if (relatedJs != null) {

@@ -25,24 +25,34 @@ class ModelViewerState extends State<ModelViewer> {
 
   /// To generate the HTML code for using the model viewer.
   Future<void> generateModelViewerHtml() async {
+    debugPrint('[model_viewer_plus] web: loading template and building HTML (src=${widget.src})');
     final String htmlTemplate = await rootBundle.loadString(
       'packages/model_viewer_plus/assets/template.html',
     );
 
     final String html = _buildHTML(htmlTemplate);
+    debugPrint('[model_viewer_plus] web: HTML length=${html.length}, contains model-viewer=${html.contains('<model-viewer')}, contains <script>=${html.contains('<script')}');
 
+    final String viewType = 'model-viewer-html-$_uniqueViewType';
     ui_web.platformViewRegistry.registerViewFactory(
-      'model-viewer-html-$_uniqueViewType',
+      viewType,
       (viewId) {
-        final element = web.HTMLHtmlElement()
+        debugPrint('[model_viewer_plus] web: view factory called for viewType=$viewType viewId=$viewId');
+        // Use a div container so the parser creates <model-viewer> as a normal child.
+        // (Using HTMLHtmlElement can lead to the custom element not appearing in the DOM.)
+        final element = web.HTMLDivElement()
           ..style.border = 'none'
           ..style.height = '100%'
           ..style.width = '100%'
           ..innerHTML = html.toJS;
+        final int childCount = element.childNodes.length;
+        final bool hasModelViewer = element.querySelector('model-viewer') != null;
+        debugPrint('[model_viewer_plus] web: after innerHTML, childCount=$childCount, has model-viewer=$hasModelViewer');
         return element;
       },
     );
 
+    debugPrint('[model_viewer_plus] web: registered viewType=$viewType, setState loading=false');
     setState(() => _isLoading = false);
   }
 
@@ -66,11 +76,25 @@ class ModelViewerState extends State<ModelViewer> {
       throw ArgumentError("file:// URL scheme can't be used in Flutter web.");
     }
 
+    // On web, the template HTML is set via innerHTML on a platform-view div that
+    // lives inside the Flutter document. We must strip <meta>, <style>, and
+    // <script> tags that are only meant for the mobile WebView (a standalone
+    // document). Leaving them in causes global CSS rules (e.g. body {…}) to leak
+    // into the Flutter host and interfere with platform-view positioning —
+    // especially on mobile browsers inside an iframe where it triggers viewport
+    // resize/reflow that pushes the platform view off-screen.
+    var processedTemplate = htmlTemplate
+        .replaceFirst(
+          '<script type="module" src="model-viewer.min.js" defer></script>',
+          '',
+        );
+    // Strip <meta …> tags (viewport meta in the body is invalid & can confuse mobile browsers)
+    processedTemplate = processedTemplate.replaceAll(RegExp(r'<meta[^>]*/?>', caseSensitive: false), '');
+    // Strip <style …>…</style> blocks (the body{} rule leaks into the Flutter document)
+    processedTemplate = processedTemplate.replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false, dotAll: true), '');
+
     return HTMLBuilder.build(
-      htmlTemplate: htmlTemplate.replaceFirst(
-        '<script type="module" src="model-viewer.min.js" defer></script>',
-        '',
-      ),
+      htmlTemplate: processedTemplate,
       // Attributes
       src: widget.src,
       alt: widget.alt,
@@ -134,6 +158,8 @@ class ModelViewerState extends State<ModelViewer> {
       relatedJs: widget.relatedJs,
       meshoptDecoderPath: widget.meshoptDecoderPath,
       id: widget.id,
+      containerId: 'model-viewer-container-$_uniqueViewType'
+          .replaceAll(RegExp(r'[^a-zA-Z0-9\-_.]'), '_'),
       debugLogging: widget.debugLogging,
     );
   }
